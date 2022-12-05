@@ -9,9 +9,8 @@ import "./SneakyVault.sol";
 
 /// @title An on-chain, exact-collateralization, sealed-bid, second-price auction
 contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
-
     /// @notice The base unit for bids. The reserve price and bid value parameters
-    ///         for this contract's functions are denominated in this base unit, 
+    ///         for this contract's functions are denominated in this base unit,
     ///         _not_ wei. 1000 gwei = 1e12 wei.
     uint256 public constant BID_BASE_UNIT = 1000 gwei;
 
@@ -22,9 +21,9 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param endOfRevealPeriod The unix timestamp after which commitments can
     ///        no longer be opened.
     /// @param index Auctions selling the same asset (i.e. tokenContract-tokenId
-    ///        pair) share the same storage. This value is incremented for 
+    ///        pair) share the same storage. This value is incremented for
     ///        each new auction of a particular asset.
-    /// @param highestBid The value of the highest bid revealed so far, or 
+    /// @param highestBid The value of the highest bid revealed so far, or
     ///        the reserve price if no bids have exceeded it. In bid base units
     ///        (1000 gwei).
     /// @param secondHighestBid The value of the second-highest bid revealed
@@ -49,7 +48,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         bytes32 collateralizationDeadlineBlockHash;
     }
 
-    /// @dev A Merkle proof and block header, in conjunction with the 
+    /// @dev A Merkle proof and block header, in conjunction with the
     ///      stored `collateralizationDeadlineBlockHash` for an auction,
     ///      is used to prove that a bidder's `SneakyVault` was sufficiently
     ///      collateralized by the time the first bid was revealed.
@@ -68,7 +67,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param tokenId The ERC721 token ID of the asset being auctioned.
     /// @param seller The address selling the auctioned asset.
     /// @param bidPeriod The duration of the bidding period, in seconds.
-    /// @param revealPeriod The duration of the commitment reveal period, 
+    /// @param revealPeriod The duration of the commitment reveal period,
     ///        in seconds.
     /// @param reservePrice The minimum price (in wei) that the asset will be sold
     ///        for. If not bids exceed this price, the asset is returned to `seller`.
@@ -98,7 +97,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         uint256 bidValue
     );
 
-    /// @notice Emitted when the first bid is revealed for an auction. All 
+    /// @notice Emitted when the first bid is revealed for an auction. All
     ///         subsequent bid openings must submit a Merkle proof that their
     ///         vault was sufficiently collateralized by the deadline block.
     /// @param tokenContract The address of the ERC721 contract for the asset
@@ -106,7 +105,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param tokenId The ERC721 token ID of the asset being auctioned.
     /// @param index The auction index for the asset.
     /// @param deadlineBlockNumber The block number by which bidders' vaults
-    ///        must have been collateralized. 
+    ///        must have been collateralized.
     event CollateralizationDeadlineSet(
         address tokenContract,
         uint256 tokenId,
@@ -119,7 +118,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     ///         auctioned.
     mapping(address => mapping(uint256 => Auction)) public auctions;
 
-    /// @notice A mapping storing whether or not the bid for a `SneakyVault` was revealed. 
+    /// @notice A mapping storing whether or not the bid for a `SneakyVault` was revealed.
     mapping(address => bool) public revealedVaults;
 
     /// @notice Creates an auction for the given ERC721 asset with the given
@@ -128,7 +127,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     ///        being auctioned.
     /// @param tokenId The ERC721 token ID of the asset being auctioned.
     /// @param bidPeriod The duration of the bidding period, in seconds.
-    /// @param revealPeriod The duration of the commitment reveal period, 
+    /// @param revealPeriod The duration of the commitment reveal period,
     ///        in seconds.
     /// @param reservePrice The minimum price that the asset will be sold for.
     ///        If not bids exceed this price, the asset is returned to `seller`.
@@ -139,10 +138,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         uint32 bidPeriod,
         uint32 revealPeriod,
         uint48 reservePrice
-    ) 
-        external 
-        nonReentrant
-    {
+    ) external nonReentrant {
         Auction storage auction = auctions[tokenContract][tokenId];
 
         if (bidPeriod < 1 hours) {
@@ -151,14 +147,17 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         if (revealPeriod < 1 hours) {
             revert RevealPeriodTooShortError(revealPeriod);
         }
-        
+
         auction.seller = msg.sender;
         auction.endOfBiddingPeriod = uint32(block.timestamp) + bidPeriod;
-        auction.endOfRevealPeriod = uint32(block.timestamp) + bidPeriod + revealPeriod;
+        auction.endOfRevealPeriod =
+            uint32(block.timestamp) +
+            bidPeriod +
+            revealPeriod;
         // Increment auction index for this item
         auction.index++;
         // Both highest and second-highest bid are set to the reserve price.
-        // Any winning bid must be at least this price, and the winner will 
+        // Any winning bid must be at least this price, and the winner will
         // pay at least this price.
         auction.highestBid = reservePrice;
         auction.secondHighestBid = reservePrice;
@@ -178,14 +177,14 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         );
     }
 
-    /// @notice Reveals the value of a bid that was previously committed to. 
+    /// @notice Reveals the value of a bid that was previously committed to.
     /// @param tokenContract The address of the ERC721 contract for the asset
     ///        being auctioned.
     /// @param tokenId The ERC721 token ID of the asset being auctioned.
     /// @param bidValue The value of the bid. In bid base units (1000 gwei).
     /// @param salt The random input used to obfuscate the commitment.
     /// @param proof The proof that the vault corresponding to this bid was
-    ///        sufficiently collateralized before any bids were revealed. This 
+    ///        sufficiently collateralized before any bids were revealed. This
     ///        may be null if this is the first bid revealed for the auction.
     function revealBid(
         address tokenContract,
@@ -193,10 +192,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         uint48 bidValue,
         bytes32 salt,
         CollateralizationProof calldata proof
-    )
-        external
-        nonReentrant
-    {
+    ) external nonReentrant {
         Auction storage auction = auctions[tokenContract][tokenId];
 
         if (
@@ -208,11 +204,11 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
 
         uint32 auctionIndex = auction.index;
         address vault = getVaultAddress(
-            tokenContract, 
-            tokenId, 
-            auctionIndex, 
-            msg.sender, 
-            bidValue, 
+            tokenContract,
+            tokenId,
+            auctionIndex,
+            msg.sender,
+            bidValue,
             salt
         );
 
@@ -224,36 +220,38 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         uint256 bidValueWei = bidValue * BID_BASE_UNIT;
         bool isCollateralized = true;
 
-        // If this is the first bid revealed, record the block hash of the 
-        // previous block. All other bids must have been collateralized by 
-        // that block. 
+        // If this is the first bid revealed, record the block hash of the
+        // previous block. All other bids must have been collateralized by
+        // that block.
         if (auction.collateralizationDeadlineBlockHash == bytes32(0)) {
             // As the first bid revealed, we don't care when the vault was
-            // collateralized (e.g. this block). With the exception of racing 
-            // `revealBid` transactions in the public mempool, the bidder 
+            // collateralized (e.g. this block). With the exception of racing
+            // `revealBid` transactions in the public mempool, the bidder
             // shouldn't be able to gain additional info about other bids
             // by waiting until this block to collateralize.
             if (vault.balance < bidValueWei) {
                 // Deploy vault to return ETH to bidder
                 new SneakyVault{salt: salt}(
-                    tokenContract, 
-                    tokenId, 
-                    auctionIndex, 
+                    tokenContract,
+                    tokenId,
+                    auctionIndex,
                     msg.sender,
                     bidValue
                 );
                 isCollateralized = false;
             } else {
-                auction.collateralizationDeadlineBlockHash = blockhash(block.number - 1);
+                auction.collateralizationDeadlineBlockHash = blockhash(
+                    block.number - 1
+                );
                 emit CollateralizationDeadlineSet(
-                    tokenContract, 
-                    tokenId, 
+                    tokenContract,
+                    tokenId,
                     auctionIndex,
                     block.number - 1
                 );
             }
         } else {
-            // All other bidders must prove that their balance was 
+            // All other bidders must prove that their balance was
             // sufficiently collateralized by the deadline block.
             uint256 vaultBalance = _getProvenAccountBalance(
                 proof.accountMerkleProof,
@@ -264,16 +262,16 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
             if (vaultBalance < bidValueWei) {
                 // Deploy vault to return ETH to bidder
                 new SneakyVault{salt: salt}(
-                    tokenContract, 
-                    tokenId, 
-                    auctionIndex, 
+                    tokenContract,
+                    tokenId,
+                    auctionIndex,
                     msg.sender,
                     bidValue
                 );
                 isCollateralized = false;
             }
         }
-        
+
         if (isCollateralized) {
             // Update record of (second-)highest bid as necessary
             uint48 currentHighestBid = auction.highestBid;
@@ -287,9 +285,9 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
                 }
                 // Deploy vault to return ETH to bidder
                 new SneakyVault{salt: salt}(
-                    tokenContract, 
-                    tokenId, 
-                    auctionIndex, 
+                    tokenContract,
+                    tokenId,
+                    auctionIndex,
                     msg.sender,
                     bidValue
                 );
@@ -305,7 +303,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
             );
         }
     }
-    
+
     /// @notice Ends an active auction. Can only end an auction if the bid reveal
     ///         phase is over.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
@@ -319,10 +317,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         address highestBidder,
         uint48 highestBid,
         bytes32 highestBidSalt
-    )
-        external
-        nonReentrant
-    {
+    ) external nonReentrant {
         Auction storage auction = auctions[tokenContract][tokenId];
         if (auction.index == 0) {
             revert InvalidAuctionIndexError(0);
@@ -335,10 +330,14 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         address highestBidVault = auction.highestBidVault;
         if (highestBidVault == address(0)) {
             // No winner, return asset to seller.
-            ERC721(tokenContract).safeTransferFrom(address(this), auction.seller, tokenId);
+            ERC721(tokenContract).safeTransferFrom(
+                address(this),
+                auction.seller,
+                tokenId
+            );
         } else {
             uint32 auctionIndex = auction.index;
-            // Verify that the given bidder is in fact the highest bidder by recomputing 
+            // Verify that the given bidder is in fact the highest bidder by recomputing
             // the vault address and checking against the stored value.
             address vaultAddress = getVaultAddress(
                 tokenContract,
@@ -349,15 +348,22 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
                 highestBidSalt
             );
             if (vaultAddress != highestBidVault) {
-                revert IncorrectVaultAddressError(highestBidVault, vaultAddress);
+                revert IncorrectVaultAddressError(
+                    highestBidVault,
+                    vaultAddress
+                );
             }
             // Transfer auctioned asset to highest bidder
-            ERC721(tokenContract).transferFrom(address(this), highestBidder, tokenId);
+            ERC721(tokenContract).transferFrom(
+                address(this),
+                highestBidder,
+                tokenId
+            );
             // Deploy vault to transfer ETH to seller, returning any excess to bidder
             new SneakyVault{salt: highestBidSalt}(
-                tokenContract, 
-                tokenId, 
-                auctionIndex, 
+                tokenContract,
+                tokenId,
+                auctionIndex,
                 highestBidder,
                 highestBid
             );
@@ -378,10 +384,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         uint32 auctionIndex,
         bytes32 salt,
         uint48 bidValue
-    )
-        external
-        nonReentrant        
-    {
+    ) external nonReentrant {
         Auction storage auction = auctions[tokenContract][tokenId];
         uint32 currentAuctionIndex = auction.index;
         if (auctionIndex > currentAuctionIndex) {
@@ -402,7 +405,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         }
 
         if (auctionIndex == currentAuctionIndex) {
-            // If bidder has revealed their bid and is not currently in the 
+            // If bidder has revealed their bid and is not currently in the
             // running to win the auction, they can withdraw their collateral.
             if (vaultAddress == auction.highestBidVault) {
                 revert CannotWithdrawError();
@@ -410,9 +413,9 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         }
         // Deploy vault to return ETH to bidder
         new SneakyVault{salt: salt}(
-            tokenContract, 
-            tokenId, 
-            auctionIndex, 
+            tokenContract,
+            tokenId,
+            auctionIndex,
             msg.sender,
             bidValue
         );
@@ -425,15 +428,11 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     function getSeller(
         address tokenContract,
         uint256 tokenId
-    )
-        external
-        view
-        returns (address seller)
-    {
+    ) external view returns (address seller) {
         return auctions[tokenContract][tokenId].seller;
     }
 
-    /// @notice Returns the second highest bid (in wei) for the most recent auction of 
+    /// @notice Returns the second highest bid (in wei) for the most recent auction of
     ///         the given asset.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
     /// @param tokenId The ERC721 token ID of the asset auctioned.
@@ -441,15 +440,12 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     function getSecondHighestBid(
         address tokenContract,
         uint256 tokenId
-    )
-        external
-        view
-        returns (uint256 bid)
-    {
-        return auctions[tokenContract][tokenId].secondHighestBid * BID_BASE_UNIT;
+    ) external view returns (uint256 bid) {
+        return
+            auctions[tokenContract][tokenId].secondHighestBid * BID_BASE_UNIT;
     }
 
-    /// @notice Returns vault address associated with the highest bid for the most 
+    /// @notice Returns vault address associated with the highest bid for the most
     ///         recent auction of the given asset.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
     /// @param tokenId The ERC721 token ID of the asset auctioned.
@@ -457,26 +453,21 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     function getHighestBidVault(
         address tokenContract,
         uint256 tokenId
-    )
-        external
-        view
-        returns (address vault)
-    {
+    ) external view returns (address vault) {
         return auctions[tokenContract][tokenId].highestBidVault;
     }
 
     /// @notice Gets the parameters and state of an auction in storage.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
     /// @param tokenId The ERC721 token ID of the asset auctioned.
-    function getAuction(address tokenContract, uint256 tokenId)
-        external
-        view
-        returns (Auction memory auction)
-    {
+    function getAuction(
+        address tokenContract,
+        uint256 tokenId
+    ) external view returns (Auction memory auction) {
         return auctions[tokenContract][tokenId];
     }
 
-    /// @notice Computes the `CREATE2` address of the `SneakyVault` with the given 
+    /// @notice Computes the `CREATE2` address of the `SneakyVault` with the given
     ///         parameters. Note that the vault contract may not be deployed yet.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
     /// @param tokenId The ERC721 token ID of the asset auctioned.
@@ -484,7 +475,7 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param bidder The address of the bidder.
     /// @param bidValue The amount bid. In bid base units (1000 gwei).
     /// @param salt The random input used to obfuscate the commitment.
-    /// @return vault The address of the `SneakyVault`. 
+    /// @return vault The address of the `SneakyVault`.
     function getVaultAddress(
         address tokenContract,
         uint256 tokenId,
@@ -492,39 +483,46 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         address bidder,
         uint48 bidValue,
         bytes32 salt
-    )
-        public
-        view
-        returns (address vault)
-    {
+    ) public view returns (address vault) {
         // Compute `CREATE2` address of vault
-        return address(uint160(uint256(keccak256(abi.encodePacked(
-            bytes1(0xff),
-            address(this),
-            salt,
-            keccak256(abi.encodePacked(
-                type(SneakyVault).creationCode,
-                abi.encode(
-                    tokenContract, 
-                    tokenId, 
-                    auctionIndex, 
-                    bidder, 
-                    bidValue
+        return
+            address(
+                uint160(
+                    uint256(
+                        keccak256(
+                            abi.encodePacked(
+                                bytes1(0xff),
+                                address(this),
+                                salt,
+                                keccak256(
+                                    abi.encodePacked(
+                                        type(SneakyVault).creationCode,
+                                        abi.encode(
+                                            tokenContract,
+                                            tokenId,
+                                            auctionIndex,
+                                            bidder,
+                                            bidValue
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
                 )
-            ))
-        )))));
+            );
     }
 
-    /// @dev Gets the balance of the given account at a past block by 
+    /// @dev Gets the balance of the given account at a past block by
     ///      traversing the given Merkle proof for the state trie. Wraps
     ///      LibBalanceProof.getProvenAccountBalance so that this function
     ///      can be overriden for testing.
     /// @param proof A Merkle proof for the given account's balance in
     ///        the state trie of a past block.
-    /// @param blockHeaderRLP The RLP-encoded block header for the past 
+    /// @param blockHeaderRLP The RLP-encoded block header for the past
     ///        block for which the balance is being queried.
-    /// @param blockHash The expected blockhash. Should be equal to the 
-    ///        Keccak256 hash of `blockHeaderRLP`. 
+    /// @param blockHash The expected blockhash. Should be equal to the
+    ///        Keccak256 hash of `blockHeaderRLP`.
     /// @param account The account whose past balance is being queried.
     /// @return accountBalance The proven past balance of the account.
     function _getProvenAccountBalance(
@@ -532,17 +530,13 @@ contract SneakyAuction is ISneakyAuctionErrors, ReentrancyGuard {
         bytes memory blockHeaderRLP,
         bytes32 blockHash,
         address account
-    )
-        internal
-        virtual
-        view
-        returns (uint256 accountBalance)
-    {
-        return LibBalanceProof.getProvenAccountBalance(
-            proof,
-            blockHeaderRLP,
-            blockHash,
-            account
-        );
+    ) internal view virtual returns (uint256 accountBalance) {
+        return
+            LibBalanceProof.getProvenAccountBalance(
+                proof,
+                blockHeaderRLP,
+                blockHash,
+                account
+            );
     }
 }

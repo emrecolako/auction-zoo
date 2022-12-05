@@ -3,13 +3,26 @@
   "version": "0.1.0",
   "description": "",
   "scripts": {
-    "getProof": "node getBalanceProof.js"
+    "getProof": "node getBalanceProof.js",
+    "prettier": "prettier --write 'src/**/*.sol'",
+    "prettier:list": "prettier --list-different 'src/**/*.sol'",
+    "prettier:check": "prettier --check 'src/**/*.sol'",
+    "solhint": "solhint --config ./.solhint.json 'src/**/*.sol' --fix",
+    "solhint:check": "solhint --config ./.solhint.json 'src/**/*.sol'",
+    "lint": "npm run prettier && npm run solhint",
+    "lint:check": "npm run prettier:check && npm run solhint:check"
   },
   "author": "Michael Zhu <mzhu@a16z.com>",
   "license": "AGPL-3.0",
   "dependencies": {
     "@ethereumjs/block": "^4.0.0",
+    "prettier": "^2.8.0",
     "rlp": "^3.0.0",
     "web3": "^1.8.0"
+  },
+  "devDependencies": {
+    "prettier": "^2.5.1",
+    "prettier-plugin-solidity": "^1.0.0-beta.19",
+    "solhint": "^3.3.7"
   }
 }
