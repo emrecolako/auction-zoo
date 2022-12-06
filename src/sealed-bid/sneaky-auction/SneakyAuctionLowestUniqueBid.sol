@@ -7,12 +7,6 @@ import "./ISneakyAuctionErrors.sol";
 import "./LibBalanceProof.sol";
 import "./SneakyVault.sol";
 
-// In this modified version, the `highestBid` and `secondHighestBid` fields have been replaced with `lowestBid` and `secondLowestBid`, respectively. Additionally, the `highestBidVault` field has been renamed to `lowestBidVault`.
-
-// The `revealBid` function has been updated to compare the bid value to the `lowestBid` and `secondLowestBid` fields instead of the `highestBid` and `secondHighestBid` fields. If the bid value is lower than the `lowestBid`, then it becomes the new `lowestBid` and the previous `lowestBid` becomes the `secondLowestBid`. Otherwise, if the bid value is higher than the `lowestBid` but lower than the `secondLowestBid`, then it becomes the new `secondLowestBid`.
-
-// The `finalizeAuction` function has also been updated to transfer the winning bid to the seller from the `lowestBidVault` instead of the `highestBidVault`.
-
 contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @notice The base unit for bids. The reserve price and bid value parameters
     ///         for this contract's functions are denominated in this base unit,
@@ -28,10 +22,10 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param index Auctions selling the same asset (i.e. tokenContract-tokenId
     ///        pair) share the same storage. This value is incremented for
     ///        each new auction of a particular asset.
-    /// @param lowestBid The value of the lowest bid revealed so far, or
+    /// @param lowestUniqueBid The value of the lowest unique bid revealed so far, or
     ///        the reserve price if no bids have reached it. In bid base units
     ///        (1000 gwei).
-    /// @param secondHighestBid The value of the second-lowest bid revealed
+    /// @param secondLowestUniqueBid The value of the second-lowest bid revealed
     ///        so far, or the reserve price if no two bids have reached it.
     ///        In bid base units (1000 gwei).
     /// @param lowestBidVault The address of the `SneakyVault` containing the
@@ -40,7 +34,7 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     ///        to be the deadline for collateralization. This is set when the first
     ///        bid is revealed, and all other bids must have been collateralized
     ///        before the deadline block.
-    
+
     struct Auction {
         address seller;
         uint32 endOfBiddingPeriod;
@@ -51,7 +45,6 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
         uint48 secondLowestUniqueBid;
         address lowestUniqueBidVault;
         mapping(uint48 => uint) numBids;
-
         // =====================
         bytes32 collateralizationDeadlineBlockHash;
     }
@@ -164,11 +157,8 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
             revealPeriod;
         // Increment auction index for this item
         auction.index++;
-        // Both lowest and second-lowest bid are set to the reserve price.
-        // Any winning bid must be at least this price, and the winner will
-        // pay at least this price.
+        // Both lowest unique bid is set to the reserve price.
         auction.lowestUniqueBid = reservePrice;
-        auction.secondLowestUniqueBid = reservePrice;
         // Reset
         auction.lowestUniqueBidVault = address(0);
         auction.collateralizationDeadlineBlockHash = bytes32(0);
@@ -199,7 +189,6 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
         uint48 bidValue,
         bytes32 salt,
         CollateralizationProof calldata proof
-
     ) external nonReentrant {
         Auction storage auction = auctions[tokenContract][tokenId];
 
@@ -279,16 +268,16 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
                 uint48 currentLowestUniqueBid = auction.lowestUniqueBid;
                 uint currentNumBids = auction.numBids[bidValue];
 
-                if (currentNumBids==0 ){
+                if (currentNumBids == 0) {
                     //No bids have been made at this value, so this is a unique bid
-                    auction.numBids[bidValue]=1;
+                    auction.numBids[bidValue] = 1;
 
                     if (bidValue < currentLowestUniqueBid) {
                         auction.lowestUniqueBid = bidValue;
                         auction.secondLowestUniqueBid = currentLowestUniqueBid;
                         auction.lowestUniqueBidVault = vault;
                     } else {
-                        if (bidValue < auction.secondLowestUniqueBid){
+                        if (bidValue < auction.secondLowestUniqueBid) {
                             auction.secondLowestUniqueBid = bidValue;
                         }
                         // Deploy vault to return ETH to bidder
