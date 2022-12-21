@@ -7,10 +7,11 @@ import "./ISneakyAuctionErrors.sol";
 import "./LibBalanceProof.sol";
 import "./SneakyVault.sol";
 
+/// @title An on-chain, exact-collateralization, sealed-bid, second-price auction
 contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @notice The base unit for bids. The reserve price and bid value parameters
-    ///         for this contract's functions are denominated in this base unit,
-    ///         _not_ wei. 1000 gwei = 1e12 wei.
+    /// for this contract's functions are denominated in this base unit,
+    /// not wei. 1000 gwei = 1e12 wei.
     uint256 public constant BID_BASE_UNIT = 1000 gwei;
 
     /// @dev Representation of an auction in storage. Occupies three slots.
@@ -22,19 +23,15 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param index Auctions selling the same asset (i.e. tokenContract-tokenId
     ///        pair) share the same storage. This value is incremented for
     ///        each new auction of a particular asset.
-    /// @param lowestUniqueBid The value of the lowest unique bid revealed so far, or
-    ///        the reserve price if no bids have reached it. In bid base units
+    /// @param lowestUniqueBid The value of the lowest unique bid revealed so far,
+    ///        or the reserve price if no unique bids have been placed. In bid base units
     ///        (1000 gwei).
-    /// @param secondLowestUniqueBid The value of the second-lowest bid revealed
-    ///        so far, or the reserve price if no two bids have reached it.
-    ///        In bid base units (1000 gwei).
-    /// @param lowestBidVault The address of the `SneakyVault` containing the
+    /// @param lowestUniqueBidVault The address of the `SneakyVault` containing the
     ///        the collateral for the lowest unique bid.
     /// @param collateralizationDeadlineBlockHash The hash of the block considered
     ///        to be the deadline for collateralization. This is set when the first
     ///        bid is revealed, and all other bids must have been collateralized
     ///        before the deadline block.
-
     struct Auction {
         address seller;
         uint32 endOfBiddingPeriod;
@@ -44,7 +41,7 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
         uint48 lowestUniqueBid;
         uint48 secondLowestUniqueBid;
         address lowestUniqueBidVault;
-        mapping(uint48 => uint) numBids;
+        address secondLowestUniqueBidVault;
         // =====================
         bytes32 collateralizationDeadlineBlockHash;
     }
@@ -122,6 +119,10 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @notice A mapping storing whether or not the bid for a `SneakyVault` was revealed.
     mapping(address => bool) public revealedVaults;
 
+/// @notice A mapping  
+    mapping(uint48 => uint) public bidCounts;
+
+
     /// @notice Creates an auction for the given ERC721 asset with the given
     ///         auction parameters.
     /// @param tokenContract The address of the ERC721 contract for the asset
@@ -133,7 +134,8 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param reservePrice The minimum price that the asset will be sold for.
     ///        If not bids exceed this price, the asset is returned to `seller`.
     ///        In bid base units (1000 gwei).
-    function createAuction(
+
+function createAuction(
         address tokenContract,
         uint256 tokenId,
         uint32 bidPeriod,
@@ -157,13 +159,17 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
             revealPeriod;
         // Increment auction index for this item
         auction.index++;
-        // Both lowest unique bid is set to the reserve price.
+        // Both lowest and second-lowest bid are set to the reserve price.
+        // Any winning bid must be at least this price, and the winner will
+        // pay at least this price.
         auction.lowestUniqueBid = reservePrice;
+        
         // Reset
         auction.lowestUniqueBidVault = address(0);
         auction.collateralizationDeadlineBlockHash = bytes32(0);
 
         ERC721(tokenContract).transferFrom(msg.sender, address(this), tokenId);
+
         emit AuctionCreated(
             tokenContract,
             tokenId,
@@ -174,6 +180,7 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
         );
     }
 
+
     /// @notice Reveals the value of a bid that was previously committed to.
     /// @param tokenContract The address of the ERC721 contract for the asset
     ///        being auctioned.
@@ -182,169 +189,152 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
     /// @param salt The random input used to obfuscate the commitment.
     /// @param proof The proof that the vault corresponding to this bid was
     ///        sufficiently collateralized before any bids were revealed. This
-    ///        may be null if this is the first bid revealed for the auction.
+    ///        may be null if this is the first bid revealed for the auction
     function revealBid(
         address tokenContract,
         uint256 tokenId,
         uint48 bidValue,
         bytes32 salt,
         CollateralizationProof calldata proof
-    ) external nonReentrant {
+    )external nonReentrant{
         Auction storage auction = auctions[tokenContract][tokenId];
-
-        if (
-            block.timestamp <= auction.endOfBiddingPeriod ||
-            block.timestamp > auction.endOfRevealPeriod
-        ) {
+    if (
+        block.timestamp <= auction.endOfBiddingPeriod ||
+        block.timestamp > auction.endOfRevealPeriod
+    ) {
             revert NotInRevealPeriodError();
-        }
-
+    }
+    
         uint32 auctionIndex = auction.index;
         address vault = getVaultAddress(
+        tokenContract,
+        tokenId,
+        auctionIndex,
+        msg.sender,
+        bidValue,
+        salt
+    );
+
+    if (revealedVaults[vault]) {
+            revert BidAlreadyRevealedError(vault);
+    }
+    revealedVaults[vault] = true;
+    
+        uint256 bidValueWei = bidValue * BID_BASE_UNIT;
+        bool isCollateralized = true;
+
+    // If this is the first bid revealed, record the block hash of the
+    // previous block. All other bids must have been collateralized by
+    // that block.
+    if (auction.collateralizationDeadlineBlockHash == bytes32(0)) {
+            // As the first bid revealed, we don't care when the vault was
+            // collateralized (e.g. this block). With the exception of racing
+            // `revealBid` transactions in the public mempool, the bidder
+            // shouldn't be able to gain additional info about other bids
+           
+    // by waiting until this block to collateralize.
+            if(vault.balance < bidValueWei) {
+            // Deploy vault to return ETH to bidder
+            new SneakyVault{ salt: salt } (
+                tokenContract,
+                tokenId,
+                auctionIndex,
+                msg.sender,
+                bidValue
+            );
+            isCollateralized = false;
+        } else {
+            auction.collateralizationDeadlineBlockHash = blockhash(
+                block.number - 1
+            );
+    emit CollateralizationDeadlineSet(
+                tokenContract,
+                tokenId,
+                auctionIndex,
+                block.number - 1
+            );
+        }
+    } else {
+    // All other bidders must prove that their balance was
+    // sufficiently collateralized by the deadline block.
+    uint256 vaultBalance = _getProvenAccountBalance(
+        proof.accountMerkleProof,
+        proof.blockHeaderRLP,
+        auction.collateralizationDeadlineBlockHash,
+        vault
+    );
+        if (vaultBalance < bidValueWei) {
+            // Deploy vault to return ETH to bidder
+            new SneakyVault{ salt: salt } (
+                tokenContract,
+                tokenId,
+                auctionIndex,
+                msg.sender,
+                bidValue
+            );
+            isCollateralized = false;
+        }
+    }
+    if (isCollateralized) {
+            // Update record of lowest unique bid as necessary
+            uint48 currentLowestBid = auction.lowestUniqueBid;
+        if (bidValue < currentLowestBid || currentLowestBid == 0) {
+            auction.lowestUniqueBid = bidValue;
+            auction.lowestUniqueBidVault = vault;
+            // Update record of second lowest unique bid as necessary
+            uint48 currentSecondLowestBid = auction.secondLowestUniqueBid;
+            if (currentSecondLowestBid == 0 || currentSecondLowestBid > currentLowestBid) {
+                auction.secondLowestUniqueBid = currentLowestBid;
+                auction.secondLowestUniqueBidVault = auction.lowestUniqueBidVault;
+            }
+        } else if (bidValue == currentLowestBid) {
+            auction.lowestUniqueBidVault = address(0);
+        } else if (bidValue < auction.secondLowestUniqueBid || auction.secondLowestUniqueBid == 0) {
+            auction.secondLowestUniqueBid = bidValue;
+            auction.secondLowestUniqueBidVault = vault;
+        }
+        // Increment bid count for this value
+        bidCounts[bidValue]++;
+        // Deploy vault to return ETH to bidder
+        new SneakyVault{ salt: salt } (
             tokenContract,
             tokenId,
             auctionIndex,
             msg.sender,
-            bidValue,
-            salt
-        );
-
-        if (revealedVaults[vault]) {
-            revert BidAlreadyRevealedError(vault);
-        }
-        revealedVaults[vault] = true;
-
-        uint256 bidValueWei = bidValue * BID_BASE_UNIT;
-        bool isCollateralized = true;
-
-        // If this is the first bid revealed, record the block hash of the
-        // previous block. All other bids must have been collateralized by
-        // that block.
-        if (auction.collateralizationDeadlineBlockHash == bytes32(0)) {
-            // by waiting until this block to collateralize.
-            if (vault.balance < bidValueWei) {
-                // Deploy vault to return ETH to bidder
-                new SneakyVault{salt: salt}(
-                    tokenContract,
-                    tokenId,
-                    auctionIndex,
-                    msg.sender,
-                    bidValue
-                );
-                isCollateralized = false;
-            } else {
-                auction.collateralizationDeadlineBlockHash = blockhash(
-                    block.number - 1
-                );
-                emit CollateralizationDeadlineSet(
-                    tokenContract,
-                    tokenId,
-                    auctionIndex,
-                    block.number - 1
-                );
-            }
-        } else {
-            // All other bidders must prove that their balance was
-            // sufficiently collateralized by the deadline block.
-            uint256 vaultBalance = _getProvenAccountBalance(
-                proof.accountMerkleProof,
-                proof.blockHeaderRLP,
-                auction.collateralizationDeadlineBlockHash,
-                vault
+                bidValue
             );
-            if (vaultBalance < bidValueWei) {
-                // Deploy vault to return ETH to bidder
-                new SneakyVault{salt: salt}(
-                    tokenContract,
-                    tokenId,
-                    auctionIndex,
-                    msg.sender,
-                    bidValue
-                );
-                isCollateralized = false;
-            }
-            if (isCollateralized) {
-                // Update record of (second-)lowest bid as necessary
-                uint48 currentLowestUniqueBid = auction.lowestUniqueBid;
-                uint currentNumBids = auction.numBids[bidValue];
-
-                if (currentNumBids == 0) {
-                    //No bids have been made at this value, so this is a unique bid
-                    auction.numBids[bidValue] = 1;
-
-                    if (bidValue < currentLowestUniqueBid) {
-                        auction.lowestUniqueBid = bidValue;
-                        auction.secondLowestUniqueBid = currentLowestUniqueBid;
-                        auction.lowestUniqueBidVault = vault;
-                    } else {
-                        if (bidValue < auction.secondLowestUniqueBid) {
-                            auction.secondLowestUniqueBid = bidValue;
-                        }
-                        // Deploy vault to return ETH to bidder
-                        new SneakyVault{salt: salt}(
-                            tokenContract,
-                            tokenId,
-                            auctionIndex,
-                            msg.sender,
-                            bidValue
-                        );
-                    }
-                } else {
-                    // There is at already at least one bid at this value, so this is not a unique bid
-                    auction.numBids[bidValue]++;
-                    // Deploy vault to return ETH to bidder
-                    new SneakyVault{salt: salt}(
-                        tokenContract,
-                        tokenId,
-                        auctionIndex,
-                        msg.sender,
-                        bidValue
-                    );
-                }
-                emit BidRevealed(
-                    tokenContract,
-                    tokenId,
-                    vault,
-                    msg.sender,
-                    salt,
-                    bidValueWei
-                );
-            }
+    // and make sure that the bid value is unique
+        if (bidCounts[bidValue] == 1) {
+            auction.lowestUniqueBid = bidValue;
+            auction.lowestUniqueBidVault = vault;
+        } else {
+            // Deploy vault to return ETH to bidder
+            new SneakyVault{ salt: salt } (
+                tokenContract,
+                tokenId,
+                auctionIndex,
+                msg.sender,
+                bidValue
+            );
         }
     }
+        emit BidRevealed(
+        tokenContract,
+        tokenId,
+        vault,
+        msg.sender,
+        salt,
+        bidValueWei
+    );
 
-    function setCollateralizationDeadline(
-        address tokenContract,
-        uint256 tokenId,
-        uint32 auctionIndex,
-        uint256 deadlineBlockNumber,
-        bytes32 deadlineBlockHash
-    ) external nonReentrant {
-        Auction storage auction = auctions[tokenContract][tokenId];
-
-        if (auctionIndex != auction.index) {
-            revert InvalidAuctionIndexError(auctionIndex);
-        }
-
-        if (deadlineBlockNumber < block.number) {
-            revert CollateralizationDeadlineTooEarlyError();
-        }
-
-        auction.collateralizationDeadlineBlockHash = deadlineBlockHash;
-        emit CollateralizationDeadlineSet(
-            tokenContract,
-            tokenId,
-            auctionIndex,
-            deadlineBlockNumber
-        );
     }
 
     function endAuction(
         address tokenContract,
         uint256 tokenId,
-        address lowestUniqueBidder,
-        uint48 lowestUniqueBid,
-        bytes32 lowestUniqueBidSalt
+        address lowestBidder,
+        uint48 lowestBid,
+        bytes32 lowestBidSalt
     ) external nonReentrant {
         Auction storage auction = auctions[tokenContract][tokenId];
         if (auction.index == 0) {
@@ -365,32 +355,110 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
             );
         } else {
             uint32 auctionIndex = auction.index;
-
+            // Verify that the given bidder is in fact the lowest bidder by recomputing
+            // the vault address and checking against the stored value.
             address vaultAddress = getVaultAddress(
                 tokenContract,
                 tokenId,
                 auctionIndex,
-                lowestUniqueBidder,
-                lowestUniqueBid,
-                lowestUniqueBidSalt
+                lowestBidder,
+                lowestBid,
+                lowestBidSalt
             );
             if (vaultAddress != lowestBidVault) {
                 revert IncorrectVaultAddressError(lowestBidVault, vaultAddress);
             }
-            // Transfer auctioned asset to lowest unique bidder
+            // Transfer auctioned asset to lowest bidder
             ERC721(tokenContract).transferFrom(
                 address(this),
-                lowestUniqueBidder,
+                lowestBidder,
                 tokenId
             );
-            new SneakyVault{salt: lowestUniqueBidSalt}(
+            // Deploy vault to transfer ETH to seller, returning any excess to bidder
+            new SneakyVault{salt: lowestBidSalt}(
                 tokenContract,
                 tokenId,
                 auctionIndex,
-                lowestUniqueBidder,
-                lowestUniqueBid
+                lowestBidder,
+                lowestBid
             );
         }
+    }
+
+    /// @notice Withdraws collateral from a bidder's vault once an auction is over.
+    ///         Bidder must have opened their bid commitment.
+    /// @param tokenContract The address of the ERC721 contract for the asset
+    ///        that was auctioned.
+    /// @param tokenId The ERC721 token ID of the asset that was auctioned.
+    /// @param auctionIndex The index of the auction that was being bid on.
+    /// @param salt The random input used to obfuscate the commitment.
+    /// @param bidValue The amount bid. In bid base units (1000 gwei).
+    function withdrawCollateral(
+        address tokenContract,
+        uint256 tokenId,
+        uint32 auctionIndex,
+        bytes32 salt,
+        uint48 bidValue
+    ) external nonReentrant {
+        Auction storage auction = auctions[tokenContract][tokenId];
+        uint32 currentAuctionIndex = auction.index;
+        if (auctionIndex > currentAuctionIndex) {
+            revert InvalidAuctionIndexError(auctionIndex);
+        }
+
+        address vaultAddress = getVaultAddress(
+            tokenContract,
+            tokenId,
+            auctionIndex,
+            msg.sender,
+            bidValue,
+            salt
+        );
+
+        if (!revealedVaults[vaultAddress]) {
+            revert UnrevealedBidError();
+        }
+
+        if (auctionIndex == currentAuctionIndex) {
+            // If bidder has revealed their bid and is not currently in the
+            // running to win the auction, they can withdraw their collateral.
+            if (vaultAddress == auction.lowestUniqueBidVault) {
+                revert CannotWithdrawError();
+            }
+        }
+        // Deploy vault to return ETH to bidder
+        new SneakyVault{salt: salt}(
+            tokenContract,
+            tokenId,
+            auctionIndex,
+            msg.sender,
+            bidValue
+        );
+    }
+
+    /// @notice Returns the seller for the most recent auction of the given asset.
+    /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
+    /// @param tokenId The ERC721 token ID of the asset auctioned.
+    /// @return seller The address of the seller.
+    function getSeller(
+        address tokenContract,
+        uint256 tokenId
+    ) external view returns (address seller) {
+        return auctions[tokenContract][tokenId].seller;
+    }
+
+
+    /// @notice Returns the second highest bid (in wei) for the most recent auction of
+    ///         the given asset.
+    /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
+    /// @param tokenId The ERC721 token ID of the asset auctioned.
+    /// @return bid The value of the second lowest unique bid (in wei).
+    function getSecondLowestUniqueBid(
+        address tokenContract,
+        uint256 tokenId
+    ) external view returns (uint256 bid) {
+        return
+            auctions[tokenContract][tokenId].secondLowestUniqueBid * BID_BASE_UNIT;
     }
 
     /// @notice Computes the `CREATE2` address of the `SneakyVault` with the given
@@ -439,6 +507,27 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
             );
     }
 
+    /// @notice Returns vault address associated with the highest bid for the most
+    ///         recent auction of the given asset.
+    /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
+    /// @param tokenId The ERC721 token ID of the asset auctioned.
+    /// @return vault The address of the vault holding the collateral for the lowest unique bid
+    function getLowestUniqueBidVault(
+        address tokenContract,
+        uint256 tokenId
+    ) external view returns (address vault) {
+        return auctions[tokenContract][tokenId].lowestUniqueBidVault;
+    }
+
+        /// @notice Gets the parameters and state of an auction in storage.
+    /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
+    /// @param tokenId The ERC721 token ID of the asset auctioned.
+    function getAuction(
+        address tokenContract,
+        uint256 tokenId
+    ) external view returns (Auction memory auction) {
+        return auctions[tokenContract][tokenId];
+    }
     /// @dev Gets the balance of the given account at a past block by
     ///      traversing the given Merkle proof for the state trie. Wraps
     ///      LibBalanceProof.getProvenAccountBalance so that this function
@@ -465,4 +554,5 @@ contract SneakyAuctionLowestUniqueBid is ISneakyAuctionErrors, ReentrancyGuard {
                 account
             );
     }
+
 }
