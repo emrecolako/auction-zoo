@@ -17,7 +17,9 @@ contract SneakyVaultLUB {
         uint48 /* bidValue */
     ) {
         // This contract should be deployed via `CREATE2` by a `SneakyAuction`
-        SneakyAuctionLowestUniqueBid auctionContract = SneakyAuctionLowestUniqueBid(msg.sender);
+        SneakyAuctionLowestUniqueBid auctionContract = SneakyAuctionLowestUniqueBid(
+                msg.sender
+            );
         // If this vault holds the collateral for the winning bid, send the bid amount
         // to the seller
         if (
