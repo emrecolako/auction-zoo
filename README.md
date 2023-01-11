@@ -1,17 +1,24 @@
-# The Auction Zoo
+# The Auction Zoo - Lowest Unique Bid
 
-Whereas auction formats were once loosely adopted for (and constrained by) the technical limits of blockchains, we’re now starting to see more novel designs adapted especially for blockchains. 
-This repository aims to help bridge the gap between auction theory and practice by showcasing Solidity auction implementations that demonstrate interesting theoretical properties or novel constructions.
+This is a fork of a16z (sealed bid auction)[https://github.com/a16z/auction-zoo/tree/main/src/sealed-bid/sneaky-auction]
 
-How can theoretical principles inform implementation decisions? 
-And how can on-chain implementations, in turn, inform new directions of theoretical research? Though theory can guide us toward a certain auction design, a seemingly innocuous implementation detail itself may be interesting to analyze with a theoretical lens. 
+The winner of the auction is determined by the lowest unique bid, and the contract does not include any mechanism for handling auctions that have not been successfully sold or for resolving disputes that may arise during the auction process.
 
-The auctions are implemented as single-item (ERC721) auctions, with bids denominated in ETH, though we encourage forking to add or change features, e.g. multi-unit auctions, ERC20 bids, different payment rules.
 
-## Contents 
-- Sealed-bid auctions
-  - [Overcollateralized Vickrey auction](./src/sealed-bid/over-collateralized-auction/OverCollateralizedAuction.sol) [[post](https://a16zcrypto.com/how-auction-theory-informs-implementations/)]
-  - ["Sneaky" Vickrey auction](./src/sealed-bid/sneaky-auction/SneakyAuction.sol) [[post](https://a16zcrypto.com/hidden-in-plain-sight-a-sneaky-solidity-implementation-of-a-sealed-bid-auction/)]
+
+
+## Potential Improvements
+
+
+1. Handling of expired auctions: the current contract does not include any mechanism for handling auctions that have ended but have not been successfully sold. It could be improved by adding a process to handle expired auctions and return the ERC-721 token to the seller or perform other actions in case of a failed auction.
+
+2. Bid retracting: The current contract does not include a mechanism to allow a bidder to retract their bid. It could be improved by allowing bidders to retract their bid before the reveal period has ended, as long as they haven't revealed it.
+
+3. Handling of low-balance bidders: The current contract does not include any mechanism to handle bidders who do not have enough balance in their account to complete the transaction. It could be improved by adding a mechanism to handle this, such as refunds.
+
+4. Multisignature on the token transfer: The contract currently doesn't provide any mechanism to check the validity of the transfer, it only emits an event, it could be improved by having a multi-sig mechanism, where the owner of the ERC721 token and the contract owner signs the transfer.
+
+5. Adding a mechanism for dispute resolution: The current contract does not include any mechanism for resolving disputes that may arise in the auction process. It could be improved by adding a dispute resolution process where an unbiased third party can make a decision on any disputes that may arise.
 
 ## Accompanying blog posts
 1. [On Paper to On-Chain: How Auction Theory Informs Implementations
@@ -27,6 +34,7 @@ Install: `forge install`
 Build: `forge build`
 
 Test: `forge test`
+
 
 ## Disclaimer
 

@@ -20,4 +20,24 @@ interface ISneakyAuctionErrors {
     error BidNotLowEnoughError();
     error CollateralizationDeadlineTooEarlyError();
     error NotAuthorizedError();
+
+    error ContractPausedError();
+    error OnlyOwnerError();
+    error AuctionInProgressError();
+
+    error AddressBannedError();
+    error AddressForbiddenError();
+
+    error InvalidPriceError();
+    error InvalidDurationError();
+    error TokenBlacklistedError();
+
+    error InsufficientBalanceError();
+    error InsufficientAllowanceError();
+    error InvalidBidError();
+
+    error CommitmentAlreadyOpenedError();
+    error InvalidCommitmentError();
+    error InvalidProofError();
+    error CreateAuctionTokenNotOwned();
 }
