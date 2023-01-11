@@ -1,11 +1,14 @@
-# The Auction Zoo - Lowest Unique Bid
+# The Auction Zoo - Lowest Unique Bid Auction
 
 This is a fork of a16z (sealed bid auction)[https://github.com/a16z/auction-zoo/tree/main/src/sealed-bid/sneaky-auction]
 
 The winner of the auction is determined by the lowest unique bid, and the contract does not include any mechanism for handling auctions that have not been successfully sold or for resolving disputes that may arise during the auction process.
 
+In this contract, the winner of an auction is the person who has placed the lowest unique bid. When a bid is revealed, the contract compares the bid value to the current lowest unique bid for the auction. If the revealed bid is lower than the current lowest unique bid, the contract sets the revealed bid as the new lowest unique bid and stores the address of the vault where the bid was placed.
 
+If multiple bidders place the same bid, the contract will consider it as a duplicate bid, and it will not count as a unique bid. 
 
+Once the reveal period for the auction has ended, the winner can be determined by checking the lowest unique bid value and the address of the vault where it was placed. The winner can be the address of the account that revealed the lowest unique bid, and the ERC-721 token can be transferred to the winner.
 
 ## Potential Improvements
 
