@@ -1,10 +1,11 @@
 # The Auction Zoo - Lowest Unique Bid Auction
 
-This is a fork of a16z (sealed bid auction)[https://github.com/a16z/auction-zoo/tree/main/src/sealed-bid/sneaky-auction]
+This is a fork of a16z's [sealed bid auction](https://github.com/a16z/auction-zoo/tree/main/src/sealed-bid/sneaky-auction)
 
-The winner of the auction is determined by the lowest unique bid, and the contract does not include any mechanism for handling auctions that have not been successfully sold or for resolving disputes that may arise during the auction process.
 
-In this contract, the winner of an auction is the person who has placed the lowest unique bid. When a bid is revealed, the contract compares the bid value to the current lowest unique bid for the auction. If the revealed bid is lower than the current lowest unique bid, the contract sets the revealed bid as the new lowest unique bid and stores the address of the vault where the bid was placed.
+This smart contract implements a "sneaky" auction mechanism for ERC-721 tokens. It allows bidders to place secret bids on a token, with the bids being revealed only after a bidding period has ended. The winner of the auction is determined by the lowest unique bid.
+
+When a bid is revealed, the contract compares the bid value to the current lowest unique bid for the auction. If the revealed bid is lower than the current lowest unique bid, the contract sets the revealed bid as the new lowest unique bid and stores the address of the vault where the bid was placed.
 
 If multiple bidders place the same bid, the contract will consider it as a duplicate bid, and it will not count as a unique bid. 
 
@@ -13,15 +14,11 @@ Once the reveal period for the auction has ended, the winner can be determined b
 ## Potential Improvements
 
 
-1. Handling of expired auctions: the current contract does not include any mechanism for handling auctions that have ended but have not been successfully sold. It could be improved by adding a process to handle expired auctions and return the ERC-721 token to the seller or perform other actions in case of a failed auction.
+1. Handling of expired auctions: Contract does not include any mechanism for handling auctions that have ended but have not been successfully sold. It could be improved by adding a process to handle expired auctions and return the ERC-721 token to the seller or perform other actions in case of a failed auction.
 
-2. Bid retracting: The current contract does not include a mechanism to allow a bidder to retract their bid. It could be improved by allowing bidders to retract their bid before the reveal period has ended, as long as they haven't revealed it.
+2. Bid retracting: Contract does not include a mechanism to allow a bidder to retract their bid. It could be improved by allowing bidders to retract their bid before the reveal period has ended, as long as they haven't revealed it.
 
-3. Handling of low-balance bidders: The current contract does not include any mechanism to handle bidders who do not have enough balance in their account to complete the transaction. It could be improved by adding a mechanism to handle this, such as refunds.
-
-4. Multisignature on the token transfer: The contract currently doesn't provide any mechanism to check the validity of the transfer, it only emits an event, it could be improved by having a multi-sig mechanism, where the owner of the ERC721 token and the contract owner signs the transfer.
-
-5. Adding a mechanism for dispute resolution: The current contract does not include any mechanism for resolving disputes that may arise in the auction process. It could be improved by adding a dispute resolution process where an unbiased third party can make a decision on any disputes that may arise.
+3. Adding a mechanism for dispute resolution: The current contract does not include any mechanism for resolving disputes that may arise in the auction process. It could be improved by adding a dispute resolution process where an unbiased third party can make a decision on any disputes that may arise.
 
 ## Accompanying blog posts
 1. [On Paper to On-Chain: How Auction Theory Informs Implementations
