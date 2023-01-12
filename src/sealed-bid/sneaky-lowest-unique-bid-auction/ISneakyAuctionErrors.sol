@@ -40,4 +40,5 @@ interface ISneakyAuctionErrors {
     error InvalidCommitmentError();
     error InvalidProofError();
     error CreateAuctionTokenNotOwned();
+    // error ReservePriceEqualtoZero();
 }
